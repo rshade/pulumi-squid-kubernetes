@@ -5,6 +5,6 @@ const squid = new Squid(
     {
         namespace: "default",
         storageClassName: "civo-volume",
-        storageSize: "50Gi"
+        storageSize: 50
     },
 )

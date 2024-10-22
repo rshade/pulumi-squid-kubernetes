@@ -1,15 +1,99 @@
-import * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
 import { Input, Output, ComponentResource, ComponentResourceOptions } from "@pulumi/pulumi";
-import { CustomResource } from "@pulumi/kubernetes/apiextensions"
 import * as fs from 'fs';
+
+interface ACLRule {
+    type: string;
+    name: string;
+    action: string;
+    value: string;
+    comment?: string;
+}
+
+interface HttpAccessRule {
+    type: string;
+    action: string;
+    conditions: string;
+    comment?: string;
+}
+
+interface RefreshPattern {
+    regex: string;
+    min: number;
+    percent: string;
+    max: number;
+    options?: string;
+}
+
+interface CacheDir {
+    fileSystem: string;
+    directoryName: string;
+    size: number,
+    options: string[]
+}
+
+interface SquidConfig {
+    aclRules: ACLRule[];
+    httpAccessRules: HttpAccessRule[];
+    httpPort: number;
+    coreDumpDir: string;
+    refreshPatterns: RefreshPattern[];
+    logfileRotate: number;
+    cacheDir: CacheDir[];
+}
 
 export interface SquidArgs {
     namespace: Output<string> | string,
     serviceAccount?: Input<string>,
     storageClassName: Input<string>,
-    storageSize: Input<string>,
+    storageSize: Input<number>,
+    config?: SquidConfig,
 };
+
+function convertConfigToFile(config: SquidConfig): string {
+    let result = "";
+
+    // Convert ACL rules
+    config.aclRules.forEach(rule => {
+        result += `acl ${rule.name} ${rule.action} ${rule.value}`;
+        if (rule.comment) {
+            result += `\t# ${rule.comment}`;
+        }
+        result += "\n";
+    });
+
+    // Convert HTTP Access rules
+    config.httpAccessRules.forEach(rule => {
+        result += `${rule.type} ${rule.action} ${rule.conditions}`;
+        if (rule.comment) {
+            result += `\t# ${rule.comment}`;
+        }
+        result += "\n";
+    });
+
+    // HTTP port
+    result += `http_port ${config.httpPort}\n`;
+
+    // Core dump directory
+    result += `coredump_dir ${config.coreDumpDir}\n`;
+
+    // Refresh patterns
+    config.refreshPatterns.forEach(pattern => {
+        result += `refresh_pattern ${pattern.regex}\t${pattern.min}\t${pattern.percent}\t${pattern.max}`;
+        if (pattern.options) {
+            result += ` ${pattern.options}`;
+        }
+        result += "\n";
+    });
+
+    // Logfile rotation
+    result += `logfile_rotate ${config.logfileRotate}\n`;
+
+    // Cache directory
+    result += `cache_dir ${config.cacheDir}\n`;
+
+    return result;
+}
 
 export class Squid extends ComponentResource {
     public namespace: Output<string> | string;
@@ -41,7 +125,7 @@ export class Squid extends ComponentResource {
                 accessModes: ["ReadWriteOnce"],
                 resources: {
                     requests: {
-                        storage: args.storageSize,
+                        storage: `${args.storageSize}Gi`,
                     },
                 },
                 storageClassName: args.storageClassName,
